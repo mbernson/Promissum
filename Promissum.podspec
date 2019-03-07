@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name         = "Promissum"
-  s.version      = "3.0.0"
+  s.version      = "3.1.0"
   s.license      = "MIT"
 
   s.summary      = "A promises library written in Swift featuring combinators like map, flatMap, whenAll, whenAny."
@@ -16,6 +16,8 @@ Promissum really shines when used to combine asynchronous operations from differ
   s.authors           = { "Tom Lokhorst" => "tom@lokhorst.eu" }
   s.social_media_url  = "https://twitter.com/tomlokhorst"
   s.homepage          = "https://github.com/tomlokhorst/Promissum"
+
+  s.pod_target_xcconfig = { 'APPLICATION_EXTENSION_API_ONLY' => 'YES' }
 
   s.ios.deployment_target = '9.0'
   s.osx.deployment_target = '10.11'
