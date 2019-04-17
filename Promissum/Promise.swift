@@ -63,7 +63,7 @@ The full type `Promise<Value, Error>` has two type arguments, for both the value
 For example; the type `Promise<String, NSError>` represents a future value of type `String` that can potentially fail with a `NSError`.
 When creating a Promise yourself, it is recommended to use a custom enum to represent the possible errors cases.
 
-In cases where an error is not applicable, you can use the `NoError` type.
+In cases where an error is not applicable, you can use the `Never` type.
 
 
 ## Transforming a Promise value
@@ -73,8 +73,8 @@ Similar to `Array`, a Promise has a `map` method to apply a transform the value 
 In this example an age (Promise of int) is transformed to a future isAdult boolean:
 
 ```
-// agePromise has type Promise<Int, NoError>
-// isAdultPromise has type Promise<Bool, NoError>
+// agePromise has type Promise<Int, Never>
+// isAdultPromise has type Promise<Bool, Never>
 let isAdultPromise = agePromise.map { age in age >= 18 }
 
 ```
@@ -89,7 +89,7 @@ Note that it is often not needed to create a new Promise.
 If an existing Promise is available, transforming that using `map` or `flatMap` is often sufficient.
 
 */
-public class Promise<Value, Error> {
+public class Promise<Value, Error> where Error: Swift.Error {
   private let source: PromiseSource<Value, Error>
 
 
@@ -97,14 +97,14 @@ public class Promise<Value, Error> {
 
   /// Initialize a resolved Promise with a value.
   ///
-  /// Example: `Promise<Int, NoError>(value: 42)`
+  /// Example: `Promise<Int, Never>(value: 42)`
   public init(value: Value) {
     self.source = PromiseSource(value: value)
   }
 
   /// Initialize a rejected Promise with an error.
   ///
-  /// Example: `Promise<Int, String>(error: "Oops")`
+  /// Example: `Promise<Int, Error>(error: MyError(message: "Oops"))`
   public init(error: Error) {
     self.source = PromiseSource(error: error)
   }
@@ -147,10 +147,10 @@ public class Promise<Value, Error> {
   public var result: Result<Value, Error>? {
     switch source.state {
     case .resolved(let boxed):
-      return .value(boxed)
+      return .success(boxed)
 
     case .rejected(let boxed):
-      return .error(boxed)
+      return .failure(boxed)
 
     default:
       return nil
@@ -179,10 +179,10 @@ public class Promise<Value, Error> {
 
     let resultHandler: (Result<Value, Error>) -> Void = { result in
       switch result {
-      case .value(let value):
+      case .success(let value):
         handler(value)
 
-      case .error:
+      case .failure:
         break
       }
     }
@@ -211,10 +211,10 @@ public class Promise<Value, Error> {
 
     let resultHandler: (Result<Value, Error>) -> Void = { result in
       switch result {
-      case .value:
+      case .success:
         break
 
-      case .error(let error):
+      case .failure(let error):
         handler(error)
       }
     }
@@ -319,11 +319,11 @@ public class Promise<Value, Error> {
 
     let handler: (Result<Value, Error>) -> Void = { result in
       switch result {
-      case .value(let value):
+      case .success(let value):
         let transformed = transform(value)
         resultSource.resolve(transformed)
 
-      case .error(let error):
+      case .failure(let error):
         resultSource.reject(error)
       }
     }
@@ -344,12 +344,12 @@ public class Promise<Value, Error> {
 
     let handler: (Result<Value, Error>) -> Void = { result in
       switch result {
-      case .value(let value):
+      case .success(let value):
         let transformedPromise = transform(value)
         transformedPromise
           .then(resultSource.resolve)
           .trap(resultSource.reject)
-      case .error(let error):
+      case .failure(let error):
         resultSource.reject(error)
       }
     }
@@ -373,10 +373,10 @@ public class Promise<Value, Error> {
 
     let handler: (Result<Value, Error>) -> Void = { result in
       switch result {
-      case .value(let value):
+      case .success(let value):
         resultSource.resolve(value)
 
-      case .error(let error):
+      case .failure(let error):
         let transformed = transform(error)
         resultSource.reject(transformed)
       }
@@ -398,9 +398,9 @@ public class Promise<Value, Error> {
 
     let handler: (Result<Value, Error>) -> Void = { result in
       switch result {
-      case .value(let value):
+      case .success(let value):
         resultSource.resolve(value)
-      case .error(let error):
+      case .failure(let error):
         let transformedPromise = transform(error)
         transformedPromise
           .then(resultSource.resolve)
@@ -426,10 +426,10 @@ public class Promise<Value, Error> {
 
     let handler: (Result<Value, Error>) -> Void = { result in
       switch transform(result) {
-      case .value(let value):
+      case .success(let value):
         resultSource.resolve(value)
 
-      case .error(let error):
+      case .failure(let error):
         resultSource.reject(error)
       }
     }
@@ -458,5 +458,39 @@ public class Promise<Value, Error> {
     source.addOrCallResultHandler(handler)
 
     return resultSource.promise
+  }
+
+  /// Return a Promise with the resolve or reject delayed by the specified number of seconds.
+  public func delay(_ seconds: TimeInterval, queue: DispatchQueue? = nil) -> Promise<Value, Error> {
+    let dispatchQueue = queue ?? source.dispatchMethod.queue
+
+    return self
+      .flatMapResult { result in
+        let source = PromiseSource<Value, Error>()
+
+        dispatchQueue.asyncAfter(deadline: .now() + seconds) {
+          switch result {
+          case .value(let value):
+            source.resolve(value)
+          case .error(let error):
+            source.reject(error)
+          }
+        }
+
+        return source.promise
+    }
+  }
+}
+
+private extension DispatchMethod {
+  var queue: DispatchQueue {
+    switch self {
+    case .unspecified:
+      return DispatchQueue.main
+    case .synchronous:
+      return DispatchQueue.main
+    case .queue(let queue):
+      return queue
+    }
   }
 }
